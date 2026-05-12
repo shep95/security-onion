@@ -100,6 +100,29 @@ so-soc:
       - file: socusersroles
       - file: socclientsroles
 
+onionconfig_initial_import:
+  cmd.run:
+    - name: |
+        set -e
+        SOCONFIG=/usr/sbin/so-config.py
+        if [ ! -x "$SOCONFIG" ]; then
+          SOCONFIG=/opt/so/saltstack/default/salt/manager/tools/sbin/so-config.py
+        fi
+        for i in $(seq 1 60); do
+          if docker exec so-postgres pg_isready -h 127.0.0.1 -U postgres -q >/dev/null 2>&1 \
+             && curl -fsS --connect-timeout 2 http://{{ DOCKERMERGED.containers['so-soc'].ip }}:9822/ >/dev/null 2>&1; then
+            "$SOCONFIG" wait-schema --timeout 120
+            "$SOCONFIG" import-all --state-file /opt/so/state/onionconfig_initial_import.done
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "so-soc or so-postgres did not become ready within 120s" >&2
+        exit 1
+    - unless: test -f /opt/so/state/onionconfig_initial_import.done
+    - require:
+      - docker_container: so-soc
+
 delete_so-soc_so-status.disabled:
   file.uncomment:
     - name: /opt/so/conf/so-status/so-status.conf

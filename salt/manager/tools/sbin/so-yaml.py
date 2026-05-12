@@ -13,64 +13,6 @@ import json
 
 lockFile = "/tmp/so-yaml.lock"
 
-# postsalt: so-yaml supports three backend modes for PG-managed pillar paths:
-#
-#   dual      — write disk + mirror to so_pillar.*. Reads from disk.
-#               Used during the migration transition when disk is still
-#               canonical and PG runs as a shadow.
-#   postgres  — write to so_pillar.* only. Reads from so_pillar.*. No disk
-#               file is touched. The end state once cutover is complete.
-#   disk      — disk only, no PG. Emergency rollback escape hatch.
-#
-# Bootstrap and mine-driven files (secrets.sls, ca/init.sls, */nodes.sls,
-# top.sls, etc.) are always handled on disk regardless of mode — those paths
-# are explicitly excluded by so_yaml_postgres.locate() raising SkipPath.
-#
-# Mode resolution: SO_YAML_BACKEND env var, then /opt/so/conf/so-yaml/mode,
-# then default 'dual' (safe upgrade behavior — flipping to 'postgres' is
-# done by schema_pillar.sls after the schema is in place and the importer
-# has run at least once).
-
-MODE_FILE = "/opt/so/conf/so-yaml/mode"
-VALID_MODES = ("dual", "postgres", "disk")
-DEFAULT_MODE = "dual"
-
-try:
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import so_yaml_postgres
-    _SO_YAML_PG_AVAILABLE = True
-except Exception as _exc:
-    _SO_YAML_PG_AVAILABLE = False
-
-
-def _resolveBackendMode():
-    env = os.environ.get("SO_YAML_BACKEND")
-    if env and env in VALID_MODES:
-        return env
-    try:
-        with open(MODE_FILE, "r") as fh:
-            value = fh.read().strip()
-        if value in VALID_MODES:
-            return value
-    except (IOError, OSError):
-        pass
-    return DEFAULT_MODE
-
-
-_BACKEND_MODE = _resolveBackendMode()
-
-
-def _isPgManaged(filename):
-    """True when so-yaml should route this file's reads/writes through
-    so_pillar.*. False for bootstrap/mine-driven files that always live on
-    disk, and for arbitrary YAML paths outside the pillar tree."""
-    if not _SO_YAML_PG_AVAILABLE:
-        return False
-    try:
-        return so_yaml_postgres.is_pg_managed(filename)
-    except Exception:
-        return False
-
 
 def showUsage(args):
     print('Usage: {} <COMMAND> <YAML_FILE> [ARGS...]'.format(sys.argv[0]), file=sys.stderr)
@@ -83,13 +25,8 @@ def showUsage(args):
     print('    get [-r]         - Displays (to stdout) the value stored in the given key. Requires KEY arg. Use -r for raw output without YAML formatting.', file=sys.stderr)
     print('    remove           - Removes a yaml key, if it exists. Requires KEY arg.', file=sys.stderr)
     print('    replace          - Replaces (or adds) a new key and set its value. Requires KEY and VALUE args.', file=sys.stderr)
-    print('    purge            - Delete the YAML file from disk and remove its rows from so_pillar.* (no KEY arg).', file=sys.stderr)
+    print('    purge            - Delete the YAML file from disk (no KEY arg).', file=sys.stderr)
     print('    help             - Prints this usage information.', file=sys.stderr)
-    print('', file=sys.stderr)
-    print('  Backend mode:', file=sys.stderr)
-    print('    Resolved from $SO_YAML_BACKEND, then /opt/so/conf/so-yaml/mode, default "dual".', file=sys.stderr)
-    print('    Valid values: dual | postgres | disk. Bootstrap pillar files (secrets, ca, *.nodes.sls)', file=sys.stderr)
-    print('    are always handled on disk regardless of mode.', file=sys.stderr)
     print('', file=sys.stderr)
     print('  Where:', file=sys.stderr)
     print('   YAML_FILE          - Path to the file that will be modified. Ex: /opt/so/conf/service/conf.yaml', file=sys.stderr)
@@ -103,24 +40,6 @@ def showUsage(args):
 
 
 def loadYaml(filename):
-    """Load a YAML file's content as a dict.
-
-    PG-canonical mode (`postgres`): for PG-managed paths, read from
-    so_pillar.pillar_entry. A missing row is treated as an empty dict so
-    that `replace`/`add` on a fresh path can populate it from scratch.
-
-    Other modes / non-PG-managed paths: read from disk as today.
-    """
-    if _BACKEND_MODE == "postgres" and _isPgManaged(filename):
-        try:
-            data = so_yaml_postgres.read_yaml(filename)
-        except so_yaml_postgres.SkipPath:
-            data = None
-        except Exception as e:
-            print(f"so-yaml: pg read failed for {filename}: {e}", file=sys.stderr)
-            sys.exit(1)
-        return data if data is not None else {}
-
     try:
         with open(filename, "r") as file:
             content = file.read()
@@ -134,96 +53,20 @@ def loadYaml(filename):
 
 
 def writeYaml(filename, content):
-    """Persist `content` for `filename`.
-
-    PG-canonical mode + PG-managed path: write only to so_pillar.*. A PG
-    failure is fatal (no disk fallback) — caller must retry.
-
-    Dual mode: write disk, then mirror to PG (failures are warnings).
-
-    Disk mode or non-PG-managed path: write disk only.
-    """
-    if _BACKEND_MODE == "postgres" and _isPgManaged(filename):
-        if not _SO_YAML_PG_AVAILABLE:
-            print("so-yaml: PG-canonical mode requires so_yaml_postgres module", file=sys.stderr)
-            sys.exit(1)
-        ok, msg = so_yaml_postgres.write_yaml(
-            filename, content,
-            reason="so-yaml " + " ".join(sys.argv[1:2]))
-        if not ok:
-            print(f"so-yaml: pg write failed for {filename}: {msg}", file=sys.stderr)
-            sys.exit(1)
-        return None
-
     file = open(filename, "w")
     result = yaml.safe_dump(content, file)
     file.close()
-
-    if _BACKEND_MODE == "dual":
-        _mirrorToPostgres(filename, content)
     return result
 
 
-def _mirrorToPostgres(filename, content):
-    """Best-effort dual-write of a YAML mutation into so_pillar.*. Skips
-    files outside the PG-managed pillar surface (secrets.sls,
-    elasticsearch/nodes.sls, etc.) and silently degrades when so-postgres
-    is unreachable. Disk write is canonical in dual mode; this never
-    raises.
-
-    Only real PG failures (`pg write failed: ...`) are logged so the
-    common cases (skipped path, postgres not running) don't pollute
-    stderr."""
-    if not _SO_YAML_PG_AVAILABLE:
-        return
-    try:
-        ok, msg = so_yaml_postgres.write_yaml(filename, content,
-                                              reason="so-yaml " + " ".join(sys.argv[1:2]))
-        if not ok and msg.startswith("pg write failed"):
-            print(f"so-yaml: {msg}", file=sys.stderr)
-    except Exception as e:  # pragma: no cover — defensive: never break disk write
-        print(f"so-yaml: pg mirror exception: {e}", file=sys.stderr)
-
-
 def purgeFile(filename):
-    """Delete a YAML file from disk and remove the matching rows from
-    so_pillar.*. Idempotent — missing file/row counts as success.
-
-    PG-canonical mode + PG-managed path: PG delete is canonical. If a stale
-    disk file from the dual-write era happens to still exist, it's removed
-    too as a cleanup courtesy. PG failure is fatal in this mode.
-
-    Dual / disk modes: remove disk first; PG cleanup is best-effort."""
-    if _BACKEND_MODE == "postgres" and _isPgManaged(filename):
-        if not _SO_YAML_PG_AVAILABLE:
-            print("so-yaml: PG-canonical mode requires so_yaml_postgres module", file=sys.stderr)
-            return 1
-        ok, msg = so_yaml_postgres.purge_yaml(filename, reason="so-yaml purge")
-        if not ok:
-            print(f"so-yaml: pg purge failed for {filename}: {msg}", file=sys.stderr)
-            return 1
-        if os.path.exists(filename):
-            try:
-                os.remove(filename)
-            except Exception as e:
-                print(f"so-yaml: warn — could not remove stale disk file {filename}: {e}", file=sys.stderr)
-        return 0
-
+    """Delete a YAML file from disk. Idempotent; missing files are success."""
     if os.path.exists(filename):
         try:
             os.remove(filename)
         except Exception as e:
             print(f"Failed to remove {filename}: {e}", file=sys.stderr)
             return 1
-
-    if _BACKEND_MODE == "dual" and _SO_YAML_PG_AVAILABLE:
-        try:
-            ok, msg = so_yaml_postgres.purge_yaml(filename,
-                                                  reason="so-yaml purge")
-            if not ok and msg.startswith("pg purge failed"):
-                print(f"so-yaml: {msg}", file=sys.stderr)
-        except Exception as e:
-            print(f"so-yaml: pg purge exception: {e}", file=sys.stderr)
     return 0
 
 
@@ -543,10 +386,7 @@ def get(args):
 
 
 def purge(args):
-    """purge YAML_FILE — delete the file from disk and remove the matching
-    rows from so_pillar.* in so-postgres. Used by so-minion's delete path
-    (in place of `rm -f`) so the audit log captures the deletion and
-    role_member rows get cleaned up via FK CASCADE on so_pillar.minion."""
+    """purge YAML_FILE - delete the file from disk."""
     if len(args) != 1:
         print('Missing filename arg', file=sys.stderr)
         showUsage(None)

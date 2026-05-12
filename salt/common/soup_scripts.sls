@@ -48,6 +48,13 @@ copy_so-yaml_manager_tools_sbin:
     - force: True
     - preserve: True
 
+copy_so-config_manager_tools_sbin:
+  file.copy:
+    - name: /opt/so/saltstack/default/salt/manager/tools/sbin/so-config.py
+    - source: {{UPDATE_DIR}}/salt/manager/tools/sbin/so-config.py
+    - force: True
+    - preserve: True
+
 copy_so-repo-sync_manager_tools_sbin:
   file.copy:
     - name: /opt/so/saltstack/default/salt/manager/tools/sbin/so-repo-sync
@@ -94,6 +101,13 @@ copy_so-yaml_sbin:
   file.copy:
     - name: /usr/sbin/so-yaml.py
     - source: {{UPDATE_DIR}}/salt/manager/tools/sbin/so-yaml.py
+    - force: True
+    - preserve: True
+
+copy_so-config_sbin:
+  file.copy:
+    - name: /usr/sbin/so-config.py
+    - source: {{UPDATE_DIR}}/salt/manager/tools/sbin/so-config.py
     - force: True
     - preserve: True
 

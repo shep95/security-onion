@@ -33,8 +33,11 @@ so-elastic-fleet-stop --force
 
 status "Deleting Fleet Data from Pillars..."
 so-yaml.py remove /opt/so/saltstack/local/pillar/minions/{{ GLOBALS.minion_id }}.sls elasticfleet
+/usr/sbin/so-config.py sync-yaml-mutation /opt/so/saltstack/local/pillar/minions/{{ GLOBALS.minion_id }}.sls remove elasticfleet --note "so-elastic-fleet-reset"
 so-yaml.py remove /opt/so/saltstack/local/pillar/global/soc_global.sls global.fleet_grid_enrollment_token_general
+/usr/sbin/so-config.py sync-yaml-mutation /opt/so/saltstack/local/pillar/global/soc_global.sls remove global.fleet_grid_enrollment_token_general --note "so-elastic-fleet-reset"
 so-yaml.py remove /opt/so/saltstack/local/pillar/global/soc_global.sls global.fleet_grid_enrollment_token_heavy
+/usr/sbin/so-config.py sync-yaml-mutation /opt/so/saltstack/local/pillar/global/soc_global.sls remove global.fleet_grid_enrollment_token_heavy --note "so-elastic-fleet-reset"
 
 status "Restarting Kibana..."
 so-kibana-restart --force

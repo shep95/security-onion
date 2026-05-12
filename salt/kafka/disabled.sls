@@ -20,8 +20,11 @@ so-kafka_so-status.disabled:
 ensure_default_pipeline:
   cmd.run:
     - name: |
-        /usr/sbin/so-yaml.py replace /opt/so/saltstack/local/pillar/kafka/soc_kafka.sls kafka.enabled False;
+        set -e
+        /usr/sbin/so-yaml.py replace /opt/so/saltstack/local/pillar/kafka/soc_kafka.sls kafka.enabled False
+        /usr/sbin/so-config.py sync-yaml-mutation /opt/so/saltstack/local/pillar/kafka/soc_kafka.sls replace kafka.enabled False --note "kafka.disabled"
         /usr/sbin/so-yaml.py replace /opt/so/saltstack/local/pillar/global/soc_global.sls global.pipeline REDIS
+        /usr/sbin/so-config.py sync-yaml-mutation /opt/so/saltstack/local/pillar/global/soc_global.sls replace global.pipeline REDIS --note "kafka.disabled"
 {% endif %}
 
 {# If Kafka has never been manually enabled, the 'Kafka' user does not exist. In this case certs for Kafka should not exist since they'll be owned by uid 960 #}

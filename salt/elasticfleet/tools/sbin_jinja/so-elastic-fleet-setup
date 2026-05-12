@@ -232,6 +232,7 @@ printf '%s\n'\
     "      grid_enrollment_general: '$GRIDNODESENROLLMENTOKENGENERAL'"\
     "      grid_enrollment_heavy: '$GRIDNODESENROLLMENTOKENHEAVY'"\
     "" >> "$pillar_file"
+/usr/sbin/so-config.py import-file "$pillar_file" --note "so-elastic-fleet-setup"
 
 #Store Grid Nodes Enrollment token in Global pillar
 global_pillar_file=/opt/so/saltstack/local/pillar/global/soc_global.sls
@@ -239,6 +240,7 @@ printf '%s\n'\
     "  fleet_grid_enrollment_token_general: '$GRIDNODESENROLLMENTOKENGENERAL'"\
     "  fleet_grid_enrollment_token_heavy: '$GRIDNODESENROLLMENTOKENHEAVY'"\
     "" >> "$global_pillar_file"
+/usr/sbin/so-config.py import-file "$global_pillar_file" --note "so-elastic-fleet-setup"
 
 # Call Elastic-Fleet Salt State
 printf "\nApplying elasticfleet state"

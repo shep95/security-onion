@@ -314,6 +314,24 @@ EOSQL
 	fi
 }
 
+function sync_minion_config_to_db() {
+	log "INFO" "Syncing minion config to onionconfig for $MINION_ID"
+	/usr/sbin/so-config.py import-minion "$MINION_ID" --note "so-minion $OPERATION"
+	if [ $? -ne 0 ]; then
+		log "ERROR" "Failed to sync minion config to onionconfig for $MINION_ID"
+		return 1
+	fi
+}
+
+function purge_minion_config_from_db() {
+	log "INFO" "Purging minion config from onionconfig for $MINION_ID"
+	/usr/sbin/so-config.py purge-node "$MINION_ID" --note "so-minion delete"
+	if [ $? -ne 0 ]; then
+		log "ERROR" "Failed to purge minion config from onionconfig for $MINION_ID"
+		return 1
+	fi
+}
+
 # Create the minion file
 function ensure_socore_ownership() {
 	log "INFO" "Setting socore ownership on minion files"
@@ -1088,6 +1106,10 @@ case "$OPERATION" in
 			log "ERROR" "Failed to setup minion files for $MINION_ID"
 			exit 1
 		}
+		sync_minion_config_to_db || {
+			log "ERROR" "Failed to sync minion config to onionconfig for $MINION_ID"
+			exit 1
+		}
 		updateMineAndApplyStates || {
 			log "ERROR" "Failed to update mine and apply states for $MINION_ID"
 			exit 1
@@ -1108,12 +1130,20 @@ case "$OPERATION" in
 			log "ERROR" "Failed to setup VM minion files for $MINION_ID"
 			exit 1
 		}
+		sync_minion_config_to_db || {
+			log "ERROR" "Failed to sync VM minion config to onionconfig for $MINION_ID"
+			exit 1
+		}
 		log "INFO" "Successfully added VM minion $MINION_ID"
 		;;
 
 	"delete")
 		log "INFO" "Removing minion $MINION_ID"
 		remove_postgres_telegraf_from_minion
+		purge_minion_config_from_db || {
+			log "ERROR" "Failed to purge minion config from onionconfig for $MINION_ID"
+			exit 1
+		}
 		deleteMinionFiles || {
 			log "ERROR" "Failed to delete minion files for $MINION_ID"
 			exit 1

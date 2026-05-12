@@ -8,7 +8,6 @@
 include:
 {% if PGMERGED.enabled %}
   - postgres.enabled
-  - postgres.schema_pillar
 {% else %}
   - postgres.disabled
 {% endif %}
