@@ -1763,12 +1763,18 @@ main() {
 
     enable_highstate
 
+    echo "salt-call state.show_top"
+    salt-call state.show_top
+
     echo ""
     echo "Running a highstate. This could take several minutes."
     set +e
     wait_for_salt_minion_with_restart "$MINIONID" "60" "3" "$SOUP_LOG" || fail "Salt minion was not running or ready."
     highstate
     set -e
+
+    echo "salt-call saltutil.running"
+    salt-call saltutil.running
 
     stop_salt_master
 
@@ -1791,6 +1797,9 @@ main() {
 
     # ensure the mine is updated and populated before highstates run, following the salt-master restart
     update_salt_mine
+
+    echo "salt-call state.show_top"
+    salt-call state.show_top
 
     highstate
     check_saltmaster_status
