@@ -68,6 +68,63 @@ socanalytics:
     - mode: 600
     - show_changes: False
 
+soc_analytics_disabled:
+  file.managed:
+    - name: /opt/so/conf/soc/analytics-disabled.js
+    - source: salt://soc/files/soc/analytics-disabled.js
+    - user: 939
+    - group: 939
+    - mode: 600
+    - show_changes: False
+
+soc_schemas_dir:
+  file.directory:
+    - name: /opt/so/conf/soc/schemas
+    - user: 939
+    - group: 939
+    - dir_mode: 750
+    - makedirs: True
+
+soc_investigation_schema:
+  file.managed:
+    - name: /opt/so/conf/soc/schemas/investigation_context.schema.json
+    - source: salt://soc/files/soc/schemas/investigation_context.schema.json
+    - user: 939
+    - group: 939
+    - mode: 640
+
+soc_ai_guardrails:
+  file.managed:
+    - name: /opt/so/conf/soc/schemas/ai_guardrails.json
+    - source: salt://soc/files/soc/schemas/ai_guardrails.json
+    - user: 939
+    - group: 939
+    - mode: 640
+
+soc_playbooks_dir:
+  file.directory:
+    - name: /opt/so/conf/soc/playbooks
+    - user: 939
+    - group: 939
+    - dir_mode: 750
+    - makedirs: True
+
+soc_playbook_runner:
+  file.managed:
+    - name: /opt/so/conf/soc/playbooks/playbook_runner.py
+    - source: salt://soc/files/soc/playbooks/playbook_runner.py
+    - user: 939
+    - group: 939
+    - mode: 755
+
+soc_playbook_block_ip:
+  file.managed:
+    - name: /opt/so/conf/soc/playbooks/block_suspicious_ip.yaml
+    - source: salt://soc/files/soc/playbooks/block_suspicious_ip.yaml
+    - user: 939
+    - group: 939
+    - mode: 640
+
 socconfig:
   file.managed:
     - name: /opt/so/conf/soc/soc.json

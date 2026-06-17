@@ -1,9 +1,11 @@
 import json
 import os
 import sys
+import ipaddress
 import requests
 import helpers
 import argparse
+from urllib.parse import quote
 
 
 def checkConfigRequirements(conf):
@@ -18,15 +20,19 @@ def checkConfigRequirements(conf):
 
 
 def sendReq(conf, meta, ip):
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        sys.exit(126)
+    safe_ip = quote(ip, safe='')
     url = conf['base_url']
     if conf['api_version'] == 'community':
-        url = url + 'v3/community/' + ip
-        # Community API doesn't use API key
-        response = requests.request('GET', url=url)
+        url = url + 'v3/community/' + safe_ip
+        response = requests.request('GET', url=url, timeout=helpers.HTTP_TIMEOUT_SECONDS)
     elif conf['api_version'] in ['investigate', 'automate']:
-        url = url + 'v2/noise/context/' + ip
+        url = url + 'v2/noise/context/' + safe_ip
         headers = {"key": conf['api_key']}
-        response = requests.request('GET', url=url, headers=headers)
+        response = requests.request('GET', url=url, headers=headers, timeout=helpers.HTTP_TIMEOUT_SECONDS)
     return response.json()
 
 

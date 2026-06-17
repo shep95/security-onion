@@ -59,6 +59,14 @@ if [[ $# -lt 1 ]]; then
 	exit 1
 fi
 
+validate_minion_id() {
+	if [[ ! "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+		log "ERROR" "Invalid minion ID: $1"
+		echo "Error: Invalid minion ID. Must match ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"
+		exit 1
+	fi
+}
+
 for i in "$@"; do
 	case $i in
 		-o=*|--operation=*)
@@ -225,7 +233,7 @@ function listMinions() {
 
 function rejectMinion() {
 	log "INFO" "Rejecting minion $MINION_ID"
-	salt-key -y -r $MINION_ID
+	salt-key -y -r "$MINION_ID"
 	result=$?
 	
 	if [ $result -ne 0 ]; then
@@ -247,7 +255,7 @@ function acceptminion() {
 		fi
 	fi
 	
-	salt-key -y -a $MINION_ID
+	salt-key -y -a "$MINION_ID"
 	result=$?
 	
 	if [ $result -ne 0 ]; then
@@ -258,7 +266,7 @@ function acceptminion() {
 
 function deleteMinion() {
 	log "INFO" "Deleting minion $MINION_ID"
-	salt-key -y -d $MINION_ID
+	salt-key -y -d "$MINION_ID"
 	result=$?
 	
 	if [ $result -ne 0 ]; then
@@ -1016,7 +1024,7 @@ function updateMineAndApplyStates() {
 	# if this is a searchnode or heavynode, start downloading logstash and elasticsearch containers while the manager prepares for the new node
 	if [[ "$NODETYPE" == "SEARCHNODE" || "$NODETYPE" == "HEAVYNODE" ]]; then
 		log "INFO" "Starting container download for $NODETYPE"
-		salt-run state.orch orch.container_download pillar="{'setup': {'newnode': $MINION_ID }}" > /dev/null 2>&1 &
+		salt-run state.orch orch.container_download pillar="{'setup': {'newnode': '$MINION_ID' }}" > /dev/null 2>&1 &
 		if [ $? -ne 0 ]; then
 			log "ERROR" "Failed to start container download"
 			return 1
@@ -1035,7 +1043,7 @@ function updateMineAndApplyStates() {
 	
 	# $MINIONID is the minion id of the manager and $MINION_ID is the target node or the node being configured
 	log "INFO" "Deploying new node configuration"
-	salt-run state.orch orch.deploy_newnode pillar="{'setup': {'manager': $MINIONID, 'newnode': $MINION_ID }}" > /dev/null 2>&1 &
+	salt-run state.orch orch.deploy_newnode pillar="{'setup': {'manager': '$MINIONID', 'newnode': '$MINION_ID' }}" > /dev/null 2>&1 &
 	if [ $? -ne 0 ]; then
 		log "ERROR" "Failed to start node deployment"
 		return 1
@@ -1076,6 +1084,10 @@ function setupMinionFiles() {
 	
 	log "INFO" "Successfully created minion files for $MINION_ID"
 }
+
+if [ -n "$MINION_ID" ] && [ "$OPERATION" != "list" ]; then
+	validate_minion_id "$MINION_ID"
+fi
 
 case "$OPERATION" in
 	"add")

@@ -5,6 +5,7 @@
 
 {% from 'vars/globals.map.jinja' import GLOBALS %}
 {% from 'docker/docker.map.jinja' import DOCKERMERGED %}
+{% from 'sensoroni/map.jinja' import SENSORONIMERGED %}
 
 
 include:
@@ -19,7 +20,11 @@ so-sensoroni:
       - /nsm/import:/nsm/import:rw
       - /nsm/pcapout:/nsm/pcapout:rw
       - /opt/so/conf/sensoroni/sensoroni.json:/opt/sensoroni/sensoroni.json:ro
+{% if SENSORONIMERGED.config.elite_security and GLOBALS.is_sensor %}
+      - /opt/so/conf/sensoroni/analyzers:/opt/sensoroni/analyzers:ro
+{% else %}
       - /opt/so/conf/sensoroni/analyzers:/opt/sensoroni/analyzers:rw
+{% endif %}
       - /opt/so/conf/sensoroni/templates:/opt/sensoroni/templates:ro
       - /opt/so/log/sensoroni:/opt/sensoroni/logs:rw
       - /nsm/suripcap/:/nsm/suripcap:rw

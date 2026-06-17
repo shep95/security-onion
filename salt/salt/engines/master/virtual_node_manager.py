@@ -139,6 +139,7 @@ import grp
 import salt.config
 import salt.runner
 import salt.client
+import re
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime, timedelta
 from threading import Lock
@@ -190,6 +191,24 @@ DEFAULTS_PATH = '/opt/so/saltstack/default/salt/hypervisor/defaults.yaml'
 HYPERVISOR_PILLAR_PATH = '/opt/so/saltstack/local/pillar/hypervisor/soc_hypervisor.sls'
 # Define the retention period for destroyed VMs (in hours)
 DESTROYED_VM_RETENTION_HOURS = 48
+
+VM_HOSTNAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$')
+VALID_VM_ROLES = frozenset(VALID_ROLES)
+
+
+def validate_vm_entry(vm_config: dict) -> Tuple[bool, Optional[str]]:
+    """Theory 1: validate VM JSON before provisioning."""
+    if not isinstance(vm_config, dict):
+        return False, 'VM config must be an object'
+    hostname = vm_config.get('hostname')
+    role = vm_config.get('role')
+    if not hostname or not VM_HOSTNAME_RE.match(str(hostname)):
+        return False, f'Invalid hostname: {hostname!r}'
+    if role not in VALID_VM_ROLES:
+        return False, f'Invalid role: {role!r}'
+    if 'network_mode' in vm_config and vm_config['network_mode'] not in ('static4', 'dhcp4'):
+        return False, f'Invalid network_mode: {vm_config.get("network_mode")!r}'
+    return True, None
 
 # Single engine-wide lock for virtual node manager
 engine_lock = Lock()
@@ -794,7 +813,7 @@ def process_vm_creation(hypervisor_path: str, vm_config: dict) -> None:
                 '-s', 'Processing'
             ], check=True)
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to emit success status event: {e}")
+            log.error("Failed to emit processing status event: %s", e)
 
         # Validate nsm_size if present
         if 'nsm_size' in vm_config:
@@ -1142,6 +1161,11 @@ def process_hypervisor(hypervisor_path: str) -> None:
             if 'hostname' not in vm_config or 'role' not in vm_config:
                 log.error("Invalid VM configuration: missing hostname or role")
                 continue
+
+            valid, err = validate_vm_entry(vm_config)
+            if not valid:
+                log.error("Invalid VM configuration: %s", err)
+                continue
                 
             vm_name = f"{vm_config['hostname']}_{vm_config['role']}"
             configured_vms.add(vm_name)
@@ -1235,4 +1259,7 @@ def start(interval: int = DEFAULT_INTERVAL,
                 
     except Exception as e:
         log.error("Error in virtual node manager: %s", str(e))
-        return
+    finally:
+        if engine_lock.locked():
+            engine_lock.release()
+            log.debug("Virtual node manager released lock after error")

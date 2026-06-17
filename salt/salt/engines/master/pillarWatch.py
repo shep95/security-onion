@@ -11,6 +11,22 @@ import os
 import sys
 log = logging.getLogger(__name__)
 
+ALLOWED_CMD_PREFIXES = (
+    '/usr/sbin/so-yaml.py ',
+    'salt-call state.apply kafka',
+    'salt-call state.apply elasticfleet',
+    'salt -C ',
+    'salt-call state.apply kafka.nodes',
+)
+
+
+def _is_allowed_pillarwatch_cmd(cmd):
+    if not isinstance(cmd, str) or not cmd.strip():
+        return False
+    normalized = cmd.strip()
+    return any(normalized.startswith(prefix) for prefix in ALLOWED_CMD_PREFIXES)
+
+
 # will need this in future versions of this engine
 #import salt.client
 #local = salt.client.LocalClient()
@@ -65,7 +81,11 @@ def start(fpa, interval=10):
                     for saltModule, args in action.items():
                         log.debug("pillarWatch engine: saltModule: %s" % saltModule)
                         log.debug("pillarWatch engine: args: %s" % args)
-                        #__salt__[saltModule](**args)
+                        if saltModule == 'cmd.run':
+                            cmd = args.get('cmd', '') if isinstance(args, dict) else ''
+                            if not _is_allowed_pillarwatch_cmd(cmd):
+                                log.error("pillarWatch engine: blocked disallowed cmd.run: %s" % cmd)
+                                continue
                         actionReturn = __salt__[saltModule](**args)
                         log.info("pillarWatch engine: actionReturn: %s" % actionReturn)
 

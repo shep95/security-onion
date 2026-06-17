@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "yaml_roots": [
+    "/opt/so/saltstack/local/",
+    "/opt/so/conf/"
+  ],
+  "healthcheck_states": [
+    "zeek",
+    "healthcheck"
+  ],
+  "pillarwatch_cmd_prefixes": [
+    "/usr/sbin/so-yaml.py ",
+    "salt-call state.apply kafka",
+    "salt-call state.apply elasticfleet",
+    "salt -C ",
+    "salt-call state.apply kafka.nodes"
+  ],
+  "egress_hosts": [
+    "www.virustotal.com",
+    "otx.alienvault.com",
+    "api.greynoise.io",
+    "urlscan.io",
+    "emailrep.io",
+    "bazaar.abuse.ch",
+    "threatfox.abuse.ch",
+    "urlhaus-api.abuse.ch",
+    "pulsedive.com"
+  ],
+  "playbook_tiers": {
+    "0": "enrich_only",
+    "1": "notify",
+    "2": "firewall_block",
+    "3": "host_isolate"
+  }
+}

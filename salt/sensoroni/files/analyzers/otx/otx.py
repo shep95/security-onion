@@ -4,6 +4,7 @@ import helpers
 import sys
 import os
 import argparse
+from urllib.parse import quote
 
 
 def buildReq(conf, artifact_type, artifact_value):
@@ -18,7 +19,7 @@ def buildReq(conf, artifact_type, artifact_value):
     elif artifact_type == "hash":
         uri = "indicators/file/"
     section = "/general"
-    url = base_url + uri + artifact_value + section
+    url = base_url + uri + quote(artifact_value, safe='') + section
     return url, headers
 
 
@@ -30,7 +31,7 @@ def checkConfigRequirements(conf):
 
 
 def sendReq(url, headers):
-    response = requests.request('GET', url, headers=headers)
+    response = requests.request('GET', url, headers=headers, timeout=helpers.HTTP_TIMEOUT_SECONDS)
     return response.json()
 
 

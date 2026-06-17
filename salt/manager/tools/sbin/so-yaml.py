@@ -11,7 +11,24 @@ import time
 import yaml
 import json
 
-lockFile = "/tmp/so-yaml.lock"
+try:
+    from so_security_utils import validate_yaml_path, validate_file_read_path, file_lock, audit_event
+except ImportError:
+    from contextlib import nullcontext
+
+    def validate_yaml_path(path):
+        return os.path.realpath(path)
+
+    def validate_file_read_path(path):
+        return os.path.realpath(path)
+
+    def file_lock(lock_path='/tmp/so-yaml.lock', fail_closed=True):
+        return nullcontext()
+
+    def audit_event(action, detail, actor='system'):
+        pass
+
+lockFile = "/opt/so/state/so-yaml.lock"
 
 
 def showUsage(args):
@@ -40,6 +57,7 @@ def showUsage(args):
 
 def loadYaml(filename):
     try:
+        filename = validate_yaml_path(filename)
         with open(filename, "r") as file:
             content = file.read()
             return yaml.safe_load(content)
@@ -52,6 +70,7 @@ def loadYaml(filename):
 
 
 def writeYaml(filename, content):
+    filename = validate_yaml_path(filename)
     file = open(filename, "w")
     return yaml.safe_dump(content, file)
 
@@ -92,6 +111,11 @@ def removeListItem(content, key, listItem):
 def convertType(value):
     if isinstance(value, str) and value.startswith("file:"):
         path = value[5:]  # Remove "file:" prefix
+        try:
+            path = validate_file_read_path(path)
+        except PermissionError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
         if not os.path.exists(path):
             print(f"File '{path}' does not exist.", file=sys.stderr)
             sys.exit(1)
@@ -392,28 +416,16 @@ def main():
 
     code = 1
 
+    code = 1
     try:
-        lockAttempts = 0
-        maxAttempts = 30
-        while lockAttempts < maxAttempts:
-            lockAttempts = lockAttempts + 1
-            try:
-                f = open(lockFile, "x")
-                f.close()
-                break
-            except Exception:
-                if lockAttempts == 1:
-                    print("Waiting for lock file to be released from another process...", file=sys.stderr)
-                time.sleep(2)
-
-        if lockAttempts == maxAttempts:
-            print("Lock file (" + lockFile + ") could not be created; proceeding without lock.", file=sys.stderr)
-
-        cmd = commands.get(args[0], showUsage)
-        code = cmd(args[1:])
-    finally:
-        if os.path.exists(lockFile):
-            os.remove(lockFile)
+        with file_lock(lockFile, fail_closed=True):
+            cmd = commands.get(args[0], showUsage)
+            code = cmd(args[1:])
+            if code == 0 and len(args) > 1:
+                audit_event('so-yaml', {'command': args[0], 'file': args[1] if len(args) > 1 else ''})
+    except RuntimeError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
 
     sys.exit(code)
 

@@ -12,6 +12,8 @@ sensoroni:
       export_event_limit: 10000
       csv_separator: ','
     node_checkin_interval_ms: 10000
+    verify_cert: False
+    elite_security: False
     sensoronikey:
     soc_host:
     suripcap:

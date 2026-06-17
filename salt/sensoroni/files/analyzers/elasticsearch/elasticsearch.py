@@ -54,6 +54,8 @@ def buildReq(conf, input):
     else:
         type = input['artifactType']
 
+    escaped_value = helpers.escapeWildcard(input['value'])
+
     query = {
         "from": 0,
         "size": num_results,
@@ -61,7 +63,7 @@ def buildReq(conf, input):
             "bool": {
                 "must": [{
                     "wildcard": {
-                        type: input['value'],
+                        type: f"*{escaped_value}*",
                     },
                 }
                 ],
@@ -94,14 +96,14 @@ def sendReq(conf, query):
             'Content-Type': 'application/json',
         }
         response = requests.post(str(url), auth=(
-            uname, pwd), verify=cert_path, data=query, headers=headers)
+            uname, pwd), verify=cert_path, data=query, headers=headers, timeout=30)
     elif apikey:
         headers = {
             'Content-Type': 'application/json',
             'Authorization': f"Apikey {apikey}"
         }
         response = requests.post(
-            str(url), verify=cert_path, data=query, headers=headers)
+            str(url), verify=cert_path, data=query, headers=headers, timeout=30)
 
     return response.json()
 
@@ -115,7 +117,9 @@ def prepareResults(raw):
 
 def analyze(conf, input):
     checkConfigRequirements(conf)
-    data = json.loads(input)
+    meta = helpers.loadMetadata(__file__)
+    data = helpers.parseArtifact(input)
+    helpers.checkSupportedType(meta, data['artifactType'])
     query = buildReq(conf, data)
     response = sendReq(conf, query)
     return prepareResults(response)

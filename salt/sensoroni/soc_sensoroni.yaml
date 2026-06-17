@@ -44,6 +44,16 @@ sensoroni:
       description: Interval in ms to checkin to the soc_host.
       advanced: True
       helpLink: grid
+    verify_cert:
+      description: Verify TLS certificates when Sensoroni agents connect to SOC.
+      forcedType: bool
+      advanced: True
+      helpLink: grid
+    elite_security:
+      description: Enable elite security hardening (audit, validation, supply-chain checks).
+      forcedType: bool
+      advanced: True
+      helpLink: grid
     node_description:
       description: Description of the specific node.
       helpLink: grid

@@ -5,6 +5,8 @@ import sys
 import os
 import argparse
 import time
+import ipaddress
+from urllib.parse import urlparse
 
 
 def checkConfigRequirements(conf):
@@ -17,7 +19,32 @@ def checkConfigRequirements(conf):
         sys.exit(126)
 
 
+def validateUrl(url_value):
+  parsed = urlparse(url_value)
+  if parsed.scheme not in ('http', 'https'):
+    sys.exit(126)
+  hostname = parsed.hostname
+  if not hostname:
+    sys.exit(126)
+  try:
+    addr = ipaddress.ip_address(hostname)
+    if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+      sys.exit(126)
+  except ValueError:
+    pass
+
+
+def validateReportUrl(report_url):
+  parsed = urlparse(report_url)
+  if parsed.scheme != 'https':
+    sys.exit(126)
+  hostname = parsed.hostname or ''
+  if not hostname.endswith('urlscan.io'):
+    sys.exit(126)
+
+
 def buildReq(conf, artifact_type, artifact_value):
+    validateUrl(artifact_value)
     headers = {"API-Key": conf["api_key"]}
     url = conf['base_url'] + 'scan/'
     visibility = conf['visibility']
@@ -26,7 +53,8 @@ def buildReq(conf, artifact_type, artifact_value):
 
 
 def getReport(conf, report_url):
-    report = requests.request('GET', report_url)
+    validateReportUrl(report_url)
+    report = requests.request('GET', report_url, timeout=30)
     timeout = conf.get('timeout', 300)
     counter = 0
     while report.status_code == 404:
@@ -34,12 +62,12 @@ def getReport(conf, report_url):
         counter += 2
         if counter >= timeout:
             break
-        report = requests.request('GET', report_url)
+        report = requests.request('GET', report_url, timeout=30)
     return report
 
 
 def sendReq(url, headers, data):
-    submission = requests.request('POST', url=url, headers=headers, data=data).json()
+    submission = requests.request('POST', url=url, headers=headers, data=data, timeout=30).json()
     report_url = submission['api']
     return report_url
 

@@ -73,6 +73,53 @@ statedir:
     - group: 939
     - makedirs: True
 
+security_log_dir:
+  file.directory:
+    - name: /opt/so/log/security
+    - user: 939
+    - group: 939
+    - dir_mode: 750
+    - makedirs: True
+
+security_conf_dir:
+  file.directory:
+    - name: /opt/so/conf/security
+    - user: 939
+    - group: 939
+    - dir_mode: 750
+    - makedirs: True
+
+security_allowlists:
+  file.managed:
+    - name: /opt/so/conf/security/allowlists.json
+    - source: salt://common/files/security/allowlists.json
+    - user: 939
+    - group: 939
+    - mode: 640
+    - show_changes: False
+
+security_egress_policy:
+  file.managed:
+    - name: /opt/so/conf/security/egress_policy.yaml
+    - source: salt://common/files/security/egress_policy.yaml
+    - user: 939
+    - group: 939
+    - mode: 640
+    - show_changes: False
+
+{% if GLOBALS.role in GLOBALS.manager_roles %}
+so_verify_weekly:
+  cron.present:
+    - name: '/usr/sbin/so-verify --strict >> /opt/so/log/security/so-verify.log 2>&1'
+    - identifier: so_verify_weekly
+    - user: root
+    - minute: '0'
+    - hour: '3'
+    - daymonth: '*'
+    - month: '*'
+    - dayweek: '0'
+{% endif %}
+
 salttmp:
   file.directory:
     - name: /opt/so/tmp

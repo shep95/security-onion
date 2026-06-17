@@ -4,6 +4,7 @@ import argparse
 import helpers
 import os
 import sys
+from urllib.parse import quote
 
 
 def checkConfigRequirements(conf):
@@ -20,7 +21,7 @@ def buildHeaders(conf):
 
 def sendReq(conf, meta, payload, headers):
     url = conf['base_url']
-    response = requests.request('GET', url + payload, headers=headers)
+    response = requests.request('GET', url + quote(payload, safe=''), headers=headers, timeout=30)
     return response.json()
 
 

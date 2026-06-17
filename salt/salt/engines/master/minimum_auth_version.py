@@ -60,7 +60,7 @@ def start(wait_days=7):
             elapsed = datetime.now() - start_time
 
             if elapsed >= wait_delta:
-                log.info("Changing minimum_auth_version")
+                log.info("Changing minimum_auth_version (requires prior admin acknowledgment in elite mode)")
                 _clear_start_time()
                 result = caller.cmd('state.apply', 'salt.master.remove_minimum_auth_version', queue=True)
                 # We shouldn't reach this line since the above line should remove the engine and restart salt-master

@@ -9,13 +9,13 @@ def searchFile(artifact, csvfiles):
     dir = os.path.dirname(os.path.realpath(__file__))
     found = []
     for f in csvfiles:
-        filename = dir + "/" + f
+        filename = helpers.safeResolvePath(dir, f)
         with open(filename, "r") as csvfile:
             csvdata = csv.DictReader(csvfile)
             for row in csvdata:
                 first_key = list(row.keys())[0]
                 if artifact in row[first_key]:
-                    row.update({"filename": filename})
+                    row.update({"filename": os.path.basename(filename)})
                     found.append(row)
     if len(found) != 0:
         if len(found) == 1:

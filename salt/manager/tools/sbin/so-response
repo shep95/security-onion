@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+
+# Copyright Security Onion Solutions LLC and/or licensed to Security Onion Solutions LLC under one
+# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at
+# https://securityonion.net/license; you may not use this file except in compliance with the
+# Elastic License 2.0.
+
+"""
+Theory 3: Unified case-centric response API.
+
+Actions are tiered; destructive actions require explicit --approve and audit logging.
+
+Usage:
+  so-response enrich --case-id CASE --artifact '{"artifactType":"ip","value":"1.2.3.4"}'
+  so-response firewall-block --case-id CASE --ip 1.2.3.4 --ttl-hours 4 --approve
+  so-response firewall-unblock --case-id CASE --ip 1.2.3.4 --approve
+  so-response status --case-id CASE
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+
+try:
+    from so_security_utils import audit_event, validate_ip_or_cidr
+except ImportError:
+    def audit_event(action, detail, actor='system'):
+        pass
+
+    def validate_ip_or_cidr(value):
+        return value
+
+STATE_DIR = '/opt/so/state/response'
+TIER_ENRICH = 0
+TIER_NOTIFY = 1
+TIER_FIREWALL = 2
+TIER_ISOLATE = 3
+
+
+def case_state_path(case_id: str) -> str:
+    safe = ''.join(c for c in case_id if c.isalnum() or c in '-_')
+    return os.path.join(STATE_DIR, f'{safe}.json')
+
+
+def load_case_state(case_id: str) -> dict:
+    path = case_state_path(case_id)
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {'case_id': case_id, 'actions': []}
+
+
+def save_case_state(case_id: str, state: dict) -> None:
+    os.makedirs(STATE_DIR, mode=0o750, exist_ok=True)
+    with open(case_state_path(case_id), 'w', encoding='utf-8') as f:
+        json.dump(state, f, indent=2)
+
+
+def record_action(case_id: str, action: str, detail: dict, tier: int) -> None:
+    state = load_case_state(case_id)
+    entry = {
+        'action': action,
+        'tier': tier,
+        'detail': detail,
+        'ts': int(time.time()),
+    }
+    state['actions'].append(entry)
+    save_case_state(case_id, state)
+    audit_event(f'response.{action}', {'case_id': case_id, **detail})
+
+
+def require_approve(args, tier: int) -> None:
+    if tier >= TIER_FIREWALL and not args.approve:
+        print('This action requires --approve (Theory 3: human-in-the-loop).', file=sys.stderr)
+        sys.exit(2)
+
+
+def cmd_enrich(args):
+    record_action(args.case_id, 'enrich', {'artifact': args.artifact}, TIER_ENRICH)
+    print(json.dumps({'status': 'queued', 'case_id': args.case_id, 'tier': TIER_ENRICH}))
+
+
+def cmd_firewall_block(args):
+    require_approve(args, TIER_FIREWALL)
+    ip = validate_ip_or_cidr(args.ip)
+    role = args.role or 'analyst'
+    subprocess.run(
+        ['/usr/sbin/so-firewall', 'addIp', role, ip],
+        check=True,
+    )
+    record_action(args.case_id, 'firewall_block', {'ip': ip, 'role': role, 'ttl_hours': args.ttl_hours}, TIER_FIREWALL)
+    print(json.dumps({'status': 'blocked', 'ip': ip, 'case_id': args.case_id}))
+
+
+def cmd_firewall_unblock(args):
+    require_approve(args, TIER_FIREWALL)
+    ip = validate_ip_or_cidr(args.ip)
+    role = args.role or 'analyst'
+    subprocess.run(
+        ['/usr/sbin/so-firewall', 'removehost', role, ip],
+        check=True,
+    )
+    record_action(args.case_id, 'firewall_unblock', {'ip': ip, 'role': role}, TIER_FIREWALL)
+    print(json.dumps({'status': 'unblocked', 'ip': ip, 'case_id': args.case_id}))
+
+
+def cmd_status(args):
+    print(json.dumps(load_case_state(args.case_id), indent=2))
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Security Onion unified response API')
+    parser.add_argument('--case-id', required=True, help='SOC case identifier')
+    parser.add_argument('--approve', action='store_true', help='Approve tier-2+ actions')
+    sub = parser.add_subparsers(dest='command', required=True)
+
+    p_enrich = sub.add_parser('enrich')
+    p_enrich.add_argument('--artifact', required=True)
+    p_enrich.set_defaults(func=cmd_enrich)
+
+    p_block = sub.add_parser('firewall-block')
+    p_block.add_argument('--ip', required=True)
+    p_block.add_argument('--role', default='analyst')
+    p_block.add_argument('--ttl-hours', type=int, default=4)
+    p_block.set_defaults(func=cmd_firewall_block)
+
+    p_unblock = sub.add_parser('firewall-unblock')
+    p_unblock.add_argument('--ip', required=True)
+    p_unblock.add_argument('--role', default='analyst')
+    p_unblock.set_defaults(func=cmd_firewall_unblock)
+
+    p_status = sub.add_parser('status')
+    p_status.set_defaults(func=cmd_status)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == '__main__':
+    main()

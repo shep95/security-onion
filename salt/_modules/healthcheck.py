@@ -6,6 +6,7 @@ from time import time
 from os.path import getsize
 
 allowed_functions = ['is_enabled', 'zeek']
+allowed_states = frozenset({'zeek', 'healthcheck', 'kafka.nodes', 'elasticfleet'})
 states_to_apply = []
 
 
@@ -16,8 +17,13 @@ def apply_states(states=''):
 
   if not states:
     states = ','.join(states_to_apply)
- 
+
   if states:
+    for part in states.replace(',', ' ').split():
+      if part not in allowed_states:
+        logging.error('healthcheck_module: blocked disallowed state.apply target: %s' % part)
+        states_to_apply.clear()
+        return
     logging.info('healthcheck_module: apply_states states: %s' % str(states))
     __salt__['state.apply'](states)
   states_to_apply.clear()

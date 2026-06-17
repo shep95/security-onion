@@ -12,7 +12,7 @@
     "model": "{{ GLOBALS.so_model }}",
     "pollIntervalMs": {{ SENSORONIMERGED.config.node_checkin_interval_ms }},
     "serverUrl": "https://{{ GLOBALS.url_base }}/sensoroniagents",
-    "verifyCert": false,
+    "verifyCert": {{ SENSORONIMERGED.config.verify_cert | default(false) | tojson }},
     "modules": {
 {%- if SENSORONIMERGED.config.analyze.enabled %} 
       "analyze": {

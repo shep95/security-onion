@@ -5,6 +5,8 @@ on:
     paths:
       - "salt/sensoroni/files/analyzers/**"
       - "salt/manager/tools/sbin/**"
+      - "salt/common/tools/sbin/**"
+      - "tests/security/**"
 
 jobs:
   build:
@@ -33,3 +35,8 @@ jobs:
     - name: Test with pytest
       run: |
         PYTHONPATH=${{ matrix.python-code-path }} pytest ${{ matrix.python-code-path }} --cov=${{ matrix.python-code-path }} --doctest-modules --cov-report=term --cov-fail-under=100 --cov-config=pytest.ini
+    - name: Elite security regression tests
+      if: matrix.python-code-path == 'salt/sensoroni/files/analyzers'
+      run: |
+        python tests/security/test_elite_security.py
+        python tests/security/so-attack.py

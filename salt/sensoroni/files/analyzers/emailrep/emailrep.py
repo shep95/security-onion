@@ -1,9 +1,13 @@
 import json
 import os
 import sys
+import re
 import requests
 import helpers
 import argparse
+from urllib.parse import quote
+
+EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 
 
 def checkConfigRequirements(conf):
@@ -14,9 +18,11 @@ def checkConfigRequirements(conf):
 
 
 def sendReq(conf, meta, email):
-    url = conf['base_url'] + email
+    if not EMAIL_RE.match(email):
+        sys.exit(126)
+    url = conf['base_url'] + quote(email, safe='')
     headers = {"Key": conf['api_key']}
-    response = requests.request('GET', url=url, headers=headers)
+    response = requests.request('GET', url=url, headers=headers, timeout=helpers.HTTP_TIMEOUT_SECONDS)
     return response.json()
 
 

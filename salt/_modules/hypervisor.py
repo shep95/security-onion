@@ -50,6 +50,14 @@ def remove_vm_from_vms_file(vms_file_path, vm_hostname, vm_role):
         salt '*' hypervisor.remove_vm_from_vms_file /opt/so/saltstack/local/salt/hypervisor/hosts/hypervisor1VMs node1 nsm
     """
     try:
+        vms_file_path = os.path.realpath(vms_file_path)
+        allowed_root = os.path.realpath('/opt/so/saltstack/local/salt/hypervisor/hosts')
+        if not (vms_file_path == allowed_root or vms_file_path.startswith(allowed_root + os.sep)):
+            if not vms_file_path.endswith('VMs') or 'hypervisor' not in vms_file_path:
+                msg = f'VMs file path not allowed: {vms_file_path}'
+                log.error(msg)
+                return {'result': False, 'comment': msg}
+
         # Check if file exists
         if not os.path.exists(vms_file_path):
             msg = f"VMs file not found: {vms_file_path}"

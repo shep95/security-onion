@@ -1,0 +1,23 @@
+# Theory 3: Example playbook — tiered response with human approval gates.
+id: block-suspicious-ip
+version: 1
+tier: 2
+description: Enrich IP, propose firewall block, require analyst approval before block.
+steps:
+  - id: enrich_ip
+    action: enrich
+    tier: 0
+    params:
+      artifact_type: ip
+  - id: notify_analyst
+    action: notify
+    tier: 1
+    params:
+      channel: case_comment
+      message: "Suspicious IP enriched; review before block."
+  - id: block_ip
+    action: firewall_block
+    tier: 2
+    requires_approval: true
+    params:
+      ttl_hours: 4
