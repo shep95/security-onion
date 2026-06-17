@@ -1,11 +1,17 @@
 #!/bin/bash
+set -o pipefail
+set -u
 #
 # Copyright Security Onion Solutions LLC and/or licensed to Security Onion Solutions LLC under one
-# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at 
+# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at
 # https://securityonion.net/license; you may not use this file except in compliance with the
 # Elastic License 2.0.
 
 . /usr/sbin/so-common
+
+LOG_CHECK_FILES=$(mktemp /tmp/log_check_files.XXXXXX)
+LOG_CHECK=$(mktemp /tmp/log_check.XXXXXX)
+trap 'rm -f "$LOG_CHECK_FILES" "$LOG_CHECK"' EXIT
 
 RECENT_LOG_LINES=200
 EXCLUDE_STARTUP_ERRORS=N
@@ -67,7 +73,7 @@ function exclude_container() {
 
     exclude_id=$(docker ps | grep "$name" | awk '{print $1}')
     if [[ -n "$exclude_id" ]]; then
-        CONTAINER_IDS=$(echo $CONTAINER_IDS | sed -e "s/$exclude_id//g")
+        CONTAINER_IDS=$(echo "$CONTAINER_IDS" | sed -e "s/${exclude_id}//g")
         return $?
     fi
     return $?
@@ -76,12 +82,12 @@ function exclude_container() {
 function exclude_log() {
     name=$1
 
-    cat /tmp/log_check_files | grep -v $name > /tmp/log_check_files.new
-    mv /tmp/log_check_files.new /tmp/log_check_files
+    grep -vF "$name" "$LOG_CHECK_FILES" > "${LOG_CHECK_FILES}.new"
+    mv "${LOG_CHECK_FILES}.new" "$LOG_CHECK_FILES"
 }
 
 function check_for_errors() {
-    if cat /tmp/log_check | grep -i error | grep -vEi "$EXCLUDED_ERRORS"; then
+    if cat "$LOG_CHECK" | grep -i error | grep -vEi "$EXCLUDED_ERRORS"; then
         RESULT=1
     fi
 }
@@ -244,16 +250,16 @@ exclude_container so-mysql    # MySQL is removed as of 2.4.70, disregard output 
 exclude_container so-soctopus # Soctopus is removed as of 2.4.70, disregard output in stopped containers
 
 for container_id in $CONTAINER_IDS; do
-    container_name=$(docker ps --format json | jq ". | select(.ID==\"$container_id\")|.Names")
+    container_name=$(docker ps --format json | jq --arg cid "$container_id" '. | select(.ID==$cid) | .Names')
     status "Checking container $container_name"
-    docker logs -n $RECENT_LOG_LINES $container_id > /tmp/log_check 2>&1
+    docker logs -n $RECENT_LOG_LINES $container_id > "$LOG_CHECK" 2>&1
     check_for_errors
 done
 
 # Check Security Onion related log files
-find /opt/so/log/ /nsm -name \*.log > /tmp/log_check_files
+find /opt/so/log/ /nsm -name \*.log > "$LOG_CHECK_FILES"
 if [[ -f /var/log/cron ]]; then
-    echo "/var/log/cron" >> /tmp/log_check_files
+    echo "/var/log/cron" >> "$LOG_CHECK_FILES"
 fi
 exclude_log "kibana.log"   # kibana error logs are too verbose with large varieties of errors most of which are temporary
 exclude_log "spool"        # disregard zeek analyze logs as this is data specific
@@ -270,13 +276,13 @@ exclude_log "detections_runtime-status_yara.log" # temporarily ignore this log u
 exclude_log "/nsm/kafka/data/" # ignore Kafka data directory from log check.
 
 # Include Zeek reporter.log to detect errors after running known good pcap(s) through sensor
-echo "/nsm/zeek/spool/logger/reporter.log" >> /tmp/log_check_files
+echo "/nsm/zeek/spool/logger/reporter.log" >> "$LOG_CHECK_FILES"
 
-for log_file in $(cat /tmp/log_check_files); do
+while IFS= read -r log_file; do
     status "Checking log file $log_file"
-    tail -n $RECENT_LOG_LINES $log_file > /tmp/log_check
+    tail -n $RECENT_LOG_LINES $log_file > "$LOG_CHECK"
     check_for_errors
-done
+done < "$LOG_CHECK_FILES"
 # Look for OOM specific errors in /var/log/messages which can lead to odd behavior / test failures
 if [[ -f /var/log/messages ]]; then
     status "Checking log file /var/log/messages"
@@ -285,9 +291,7 @@ if [[ -f /var/log/messages ]]; then
     fi
 fi
 
-# Cleanup temp files
-rm -f /tmp/log_check_files
-rm -f /tmp/log_check
+# Cleanup temp files handled by trap on EXIT
 
 if [[ $RESULT -eq 0 ]]; then
     echo -e "\nResult: No errors found"

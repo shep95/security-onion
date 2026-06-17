@@ -1,4 +1,6 @@
 #!/bin/bash
+set -o pipefail
+set -u
 
 . $(dirname $0)/so-common
 
@@ -24,10 +26,15 @@ fi
 
 if [ -z "$NEW_IP" ]; then
 	iface=$(lookup_pillar "mainint" "host")
-	NEW_IP=$(ip -4 addr list $iface | grep inet | cut -d' ' -f6 | cut -d/ -f1)
+	NEW_IP=$(ip -4 addr list "$iface" | grep inet | cut -d' ' -f6 | cut -d/ -f1)
 
 	if [ -z "$NEW_IP" ]; then
 		fail "Unable to detect new IP on interface $iface."
+	fi
+
+	if [[ ! "$NEW_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+		echo "ERROR: Detected new IP '$NEW_IP' does not look valid." >&2
+		exit 1
 	fi
 
 	echo "Detected new IP $NEW_IP on interface $iface."
@@ -44,10 +51,10 @@ read -n 1 -p "Would you like to continue? (y/N) " CONTINUE
 echo ""
 
 if [ "$CONTINUE" == "y" ]; then
-	for file in $(grep -rlI $OLD_IP /opt/so/saltstack /etc); do
+	while IFS= read -r file; do
 		echo "Updating file: $file"
-		sed -i "s|$OLD_IP|$NEW_IP|g" $file
-	done
+		sed -i "s|${OLD_IP}|${NEW_IP}|g" "$file"
+	done < <(grep -rlI "$OLD_IP" /opt/so/saltstack /etc)
 
 	echo "Updating Kibana dashboards"
 	salt-call state.apply kibana.so_savedobjects_defaults -l info queue=True

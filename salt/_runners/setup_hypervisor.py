@@ -66,6 +66,7 @@ import hashlib
 import logging
 import os
 import pwd
+import re
 import requests
 import salt.client
 import salt.utils.files
@@ -168,7 +169,9 @@ def _validate_image_checksum(path, expected_sha256):
 IMAGE_URL = "https://download.securityonion.net/file/securityonion/OL9U5_x86_64-kvm-b253.qcow2"
 IMAGE_SHA256 = "3b00bbbefc8e78dd28d9f538834fb9e2a03d5ccdc2cadf2ffd0036c0a8f02021"
 IMAGE_PATH = "/nsm/libvirt/boot/OL9U5_x86_64-kvm-b253.qcow2"
-MANAGER_HOSTNAME = socket.gethostname()
+def _get_manager_hostname():
+    """Return the current manager hostname. Deferred to call time to avoid stale module-load value."""
+    return socket.gethostname()
 
 def _download_image():
     """
@@ -353,7 +356,7 @@ def _setup_ssh_keys():
             encoding=serialization.Encoding.OpenSSH,
             format=serialization.PublicFormat.OpenSSH
         )
-        public_bytes = public_bytes + f' soqemussh@{MANAGER_HOSTNAME}\n'.encode('utf-8')
+        public_bytes = public_bytes + f' soqemussh@{_get_manager_hostname()}\n'.encode('utf-8')
 
         # Write the keys to files
         with salt.utils.files.fopen(key_path, 'wb') as f:
@@ -504,13 +507,17 @@ def _apply_dyanno_hypervisor_state(status):
     """
     try:
         log.info(f"Applying soc.dyanno.hypervisor state on salt master with status: {status}")
-        
+
+        # Sanitize status to prevent injection into the pillar string interpolation
+        # TODO: replace string-interpolated pillar with a proper dict if the salt API supports it
+        status_safe = status.replace("'", "").replace('"', '')
+
         # Initialize the LocalClient
         local = salt.client.LocalClient()
-        
+
         # Target the salt master to apply the soc.dyanno.hypervisor state
-        target = MANAGER_HOSTNAME + '_*'
-        state_result = local.cmd(target, 'state.apply', ['soc.dyanno.hypervisor', f"pillar={{'baseDomain': {{'status': '{status}'}}}}", 'concurrent=True'], tgt_type='glob')
+        target = _get_manager_hostname() + '_*'
+        state_result = local.cmd(target, 'state.apply', ['soc.dyanno.hypervisor', f"pillar={{'baseDomain': {{'status': '{status_safe}'}}}}", 'concurrent=True'], tgt_type='glob')
         log.debug(f"state_result: {state_result}")
         # Check if state was applied successfully
         if state_result:
@@ -554,7 +561,7 @@ def _apply_cloud_config_state():
         local = salt.client.LocalClient()
         
         # Target the salt master to apply the soc.dyanno.hypervisor state
-        target = MANAGER_HOSTNAME + '_*'
+        target = _get_manager_hostname() + '_*'
         state_result = local.cmd(target, 'state.apply', ['salt.cloud.config', 'concurrent=True'], tgt_type='glob')
         log.debug(f"state_result: {state_result}")
         # Check if state was applied successfully
@@ -814,8 +821,8 @@ def create_vm(vm_name: str, disk_size: str = '220G'):
             log.error("Invalid VM name")
             return {'success': False, 'error': 'Invalid VM name'}
         
-        if not vm_name.isalnum() and not all(c in '-_' for c in vm_name if not c.isalnum()):
-            log.error("VM name must contain only alphanumeric characters, hyphens, or underscores")
+        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', vm_name):
+            log.error("VM name must start with alphanumeric and contain only alphanumeric, hyphens, or underscores")
             return {'success': False, 'error': 'Invalid VM name format'}
 
         # Validate disk size format
@@ -853,11 +860,16 @@ def create_vm(vm_name: str, disk_size: str = '220G'):
             return {'success': False, 'error': 'Failed to read SSH public key'}
 
         # Read pillar data for soqemussh password hash
+        # WARNING: this file contains a password hash — verify it is not world/group readable
         pillar_path = '/opt/so/saltstack/local/pillar/vm/soc_vm.sls'
         password_hash = None
         passwd_line = ""  # Default to empty if no hash found
         try:
             if os.path.exists(pillar_path):
+                pillar_stat = os.stat(pillar_path)
+                if pillar_stat.st_mode & 0o077 != 0:
+                    log.warning("Pillar file %s has insecure permissions (mode %s); it should not be group/world readable",
+                                pillar_path, oct(pillar_stat.st_mode))
                 with salt.utils.files.fopen(pillar_path, 'r') as f:
                     pillar_data = yaml.safe_load(f)
                     if pillar_data:
@@ -884,7 +896,8 @@ local-hostname: {vm_name}
 """
         meta_data_path = os.path.join(vm_dir, 'meta-data')
         # Create empty file, set perms, then write
-        open(meta_data_path, 'a').close()
+        with open(meta_data_path, 'a'):
+            pass
         _set_ownership_and_perms(meta_data_path, mode=0o640)
         with salt.utils.files.fopen(meta_data_path, 'w') as f:
             f.write(meta_data)
@@ -895,7 +908,8 @@ local-hostname: {vm_name}
   config: disabled"""
         network_data_path = os.path.join(vm_dir, 'network-data')
         # Create empty file, set perms, then write
-        open(network_data_path, 'a').close()
+        with open(network_data_path, 'a'):
+            pass
         _set_ownership_and_perms(network_data_path, mode=0o640)
         with salt.utils.files.fopen(network_data_path, 'w') as f:
             f.write(network_data)
@@ -933,7 +947,7 @@ write_files:
     content: |
       [securityonion]
       name=Security Onion Repo
-      baseurl=https://{MANAGER_HOSTNAME}/repo
+      baseurl=https://{_get_manager_hostname()}/repo
       enabled=1
       gpgcheck=1
       sslverify=0
@@ -988,7 +1002,8 @@ power_state:
 """
         user_data_path = os.path.join(vm_dir, 'user-data')
         # Create empty file, set perms, then write
-        open(user_data_path, 'a').close()
+        with open(user_data_path, 'a'):
+            pass
         _set_ownership_and_perms(user_data_path, mode=0o640)
         with salt.utils.files.fopen(user_data_path, 'w') as f:
             f.write(user_data)
@@ -1042,21 +1057,9 @@ power_state:
         # Start compression in a subprocess
         process = subprocess.Popen(['qemu-img', 'convert', '-O', 'qcow2', '-c', vm_image, temp_image],
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        # Monitor progress by checking output file size
-        source_size = os.path.getsize(vm_image)
-        last_log_time = 0
-        
-        while process.poll() is None:  # While compression is running
-            current_time = time.time()
-            if current_time - last_log_time >= 1:  # Log every second
-                if os.path.exists(temp_image):
-                    compressed_size = os.path.getsize(temp_image)
-                    progress = (compressed_size / source_size) * 100
-                    log.info("Compression progress - %.1f%% (%d/%d bytes)",
-                            progress, compressed_size, source_size)
-                last_log_time = current_time
-        
+
+        stdout, stderr = process.communicate()
+
         # Check if compression completed successfully
         if process.returncode == 0:
             os.replace(temp_image, vm_image)
@@ -1064,7 +1067,7 @@ power_state:
             _set_ownership_and_perms(vm_image, mode=0o640)
             log.info("Image compression complete")
         else:
-            error = process.stderr.read().decode('utf-8')
+            error = stderr.decode('utf-8')
             log.error("Failed to compress image: %s", error)
             if os.path.exists(temp_image):
                 os.unlink(temp_image)

@@ -24,12 +24,10 @@ def mysql_conn(retry):
 
     mysql_up = False
 
-    if len(ip_arr) == 1:
+    if ip_arr and len(ip_arr) == 1:
         mainip = ip_arr[0]
 
-        if not(retry >= 1):
-            log.debug('`retry` set to value below 1, resetting it to 1 to prevent errors.')
-            retry = 1
+        retry = max(retry, 1)
 
         for i in range(0, retry):
             log.debug(f'Connection attempt {i+1}')
@@ -40,23 +38,25 @@ def mysql_conn(retry):
                     passwd=__salt__['pillar.get']('secrets:mysql')
                 )
                 log.debug(f'Connected to MySQL server on {mainip} after {i+1} attempts.')
-                
-                db.query("""SELECT 1;""")
-                log.debug(f'Successfully completed query against MySQL server on {mainip}')
-                
-                db.close()
-                mysql_up = True
-                break
+                try:
+                    db.query("""SELECT 1;""")
+                    log.debug(f'Successfully completed query against MySQL server on {mainip}')
+                    mysql_up = True
+                    break
+                finally:
+                    db.close()
             except _mysql.OperationalError as e:
                 log.debug(e)
             except Exception as e:
-                log.error('Unexpected error occured.')
+                log.error('Unexpected error occurred.')
                 log.error(e)
                 break
             sleep(1)
 
         if not mysql_up:
             log.error(f'Could not connect to MySQL server on {mainip} after {retry} attempts.')
+    elif not ip_arr:
+        log.error(f'No IP address found for interface {mainint}.')
     else:
         log.error(f'Main interface {mainint} has more than one IP address assigned to it, which is not supported.')
         log.debug(f'{mainint}:')

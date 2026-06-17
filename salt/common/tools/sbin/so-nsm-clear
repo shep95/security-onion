@@ -1,7 +1,8 @@
 #!/bin/bash
+set -o pipefail
 #
 # Copyright Security Onion Solutions LLC and/or licensed to Security Onion Solutions LLC under one
-# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at 
+# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at
 # https://securityonion.net/license; you may not use this file except in compliance with the
 # Elastic License 2.0.
 
@@ -21,7 +22,7 @@ Security Onion NSM Data Deletion
   -y         Skip interactive mode
 EOF
 }
-while getopts "h:y" OPTION
+while getopts "hy" OPTION
 do
         case $OPTION in
                 h)
@@ -56,15 +57,19 @@ fi
 
 delete_pcap() {
   PCAP_DATA="/nsm/suripcap/"
-  [ -d $PCAP_DATA ] && rm -rf $PCAP_DATA/*
+  [ -d "$PCAP_DATA" ] && rm -rf "${PCAP_DATA:?}/"*
 }
 delete_suricata() {
   SURI_LOG="/nsm/suricata/"
-  [ -d $SURI_LOG ] && rm -rf $SURI_LOG/*
+  [ -d "$SURI_LOG" ] && rm -rf "${SURI_LOG:?}/"*
 }
 delete_zeek() {
   ZEEK_LOG="/nsm/zeek/logs/"
-  [ -d $ZEEK_LOG ] && so-zeek-stop && rm -rf $ZEEK_LOG/* && so-zeek-start
+  if [ -d "$ZEEK_LOG" ]; then
+    so-zeek-stop
+    rm -rf "${ZEEK_LOG:?}/"* || { echo "WARNING: Failed to clear Zeek logs" >&2; }
+    so-zeek-start
+  fi
 }
 
 so-suricata-stop

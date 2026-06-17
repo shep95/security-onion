@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Copyright 2014 Google Inc. All rights reserved.
 #
@@ -41,12 +42,13 @@ fi
 
 # Process the output, skipping the first line
 echo "$tcpdump_output" | tail -n+2 | while read -r line; do
-  cols=( $line )
+  read -ra cols <<< "$line"
   printf "%04x%02x%02x%08x" "${cols[0]}" "${cols[1]}" "${cols[2]}" "${cols[3]}"
 done
+PIPE_STATUS=("${PIPESTATUS[@]}")
 
 # Check if the pipeline succeeded
-if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+if [ "${PIPE_STATUS[0]}" -ne 0 ]; then
   exit 1
 fi
 

@@ -1,7 +1,8 @@
 #!/bin/bash
+set -euo pipefail
 
 # Copyright Security Onion Solutions LLC and/or licensed to Security Onion Solutions LLC under one
-# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at 
+# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at
 # https://securityonion.net/license; you may not use this file except in compliance with the
 # Elastic License 2.0.
 
@@ -14,4 +15,9 @@ https://securityonion.net/docs/salt
 
 EOF
 
-salt-call state.highstate -l info queue=True
+if ! systemctl is-active --quiet salt-minion; then
+    echo "ERROR: salt-minion service is not running." >&2
+    exit 1
+fi
+
+salt-call state.highstate -l info queue=True || exit $?

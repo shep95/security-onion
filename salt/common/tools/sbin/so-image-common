@@ -22,7 +22,7 @@ container_list() {
     fi
   fi
 
-  if [ $MANAGERCHECK == 'so-import' ]; then
+  if [ "$MANAGERCHECK" == 'so-import' ]; then
     TRUSTED_CONTAINERS=(
       "so-elasticsearch"
       "so-influxdb"
@@ -40,7 +40,7 @@ container_list() {
       "so-elastic-agent-builder"
       "so-elastic-fleet-package-registry"
     )
-  elif [ $MANAGERCHECK != 'so-helix' ]; then
+  elif [ "$MANAGERCHECK" != 'so-helix' ]; then
     TRUSTED_CONTAINERS=(
       "so-elastalert"
       "so-elastic-agent"
@@ -87,6 +87,8 @@ update_docker_containers() {
 
   local CONTAINER_REGISTRY=ghcr.io
   local SIGNPATH=/root/sosigs
+  # TODO: set TRUSTED_KEY_FINGERPRINT to the expected Security Onion signing key fingerprint
+  local TRUSTED_KEY_FINGERPRINT=""
   
   if [ -z "$CURLTYPE" ]; then
     CURLTYPE=unknown
@@ -112,8 +114,12 @@ update_docker_containers() {
   # does not include so-elastic-fleet since that container uses so-elastic-agent image
   local IMAGES_USING_ES_VERSION=("so-elasticsearch")
 
-  rm -rf $SIGNPATH >> "$LOG_FILE" 2>&1 
-  mkdir -p $SIGNPATH >> "$LOG_FILE" 2>&1 
+  if [[ -L "$SIGNPATH" ]]; then
+    echo "ERROR: $SIGNPATH is a symlink. Possible symlink attack." >&2
+    exit 1
+  fi
+  rm -rf "$SIGNPATH" >> "$LOG_FILE" 2>&1
+  mkdir -p "$SIGNPATH" >> "$LOG_FILE" 2>&1
 
   # Let's make sure we have the public key
   run_check_net_err \
@@ -122,7 +128,11 @@ update_docker_containers() {
   noretry >> "$LOG_FILE" 2>&1
   result=$?
   if [[ $result -eq 0 ]]; then
-    cat $SIGNPATH/KEYS | gpg --import - >> "$LOG_FILE" 2>&1
+    gpg --import < "$SIGNPATH/KEYS" >> "$LOG_FILE" 2>&1
+    if [[ -n "$TRUSTED_KEY_FINGERPRINT" ]] && ! gpg --list-keys "$TRUSTED_KEY_FINGERPRINT" > /dev/null 2>&1; then
+      echo "ERROR: Imported GPG key does not match trusted fingerprint" >&2
+      exit 1
+    fi
   fi
 
   # If downloading for soup, check if any optional images need to be pulled
@@ -163,7 +173,7 @@ update_docker_containers() {
     fi
     # Pull down the trusted docker image
     run_check_net_err \
-    "docker pull $CONTAINER_REGISTRY/$IMAGEREPO/$image" \
+    "docker pull \"$CONTAINER_REGISTRY/$IMAGEREPO/$image\"" \
     "Could not pull $image, please ensure connectivity to $CONTAINER_REGISTRY" >> "$LOG_FILE" 2>&1
 
     # Get signature
@@ -172,7 +182,7 @@ update_docker_containers() {
     "Could not pull signature file for $image, please ensure connectivity to https://sigs.securityonion.net " \
     noretry >> "$LOG_FILE" 2>&1
     # Dump our hash values
-    DOCKERINSPECT=$(docker inspect $CONTAINER_REGISTRY/$IMAGEREPO/$image)
+    DOCKERINSPECT=$(docker inspect "$CONTAINER_REGISTRY/$IMAGEREPO/$image")
        
     echo "$DOCKERINSPECT" | jq ".[0].RepoDigests[] | select(. | contains(\"$CONTAINER_REGISTRY\"))" > $SIGNPATH/$image.txt
     echo "$DOCKERINSPECT" | jq ".[0].Created, .[0].RootFS.Layers" >> $SIGNPATH/$image.txt

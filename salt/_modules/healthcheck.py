@@ -17,9 +17,10 @@ def apply_states(states=''):
   if not states:
     states = ','.join(states_to_apply)
  
-  if states: 
+  if states:
     logging.info('healthcheck_module: apply_states states: %s' % str(states))
     __salt__['state.apply'](states)
+  states_to_apply.clear()
 
 
 def docker_stop(container):
@@ -32,7 +33,7 @@ def docker_stop(container):
 
 def is_enabled():
   
-  if __salt__['pillar.get']('healthcheck:enabled', 'False'):
+  if __salt__['pillar.get']('healthcheck:enabled', False):
     retval = True
   else:
     retval = False
@@ -94,11 +95,14 @@ def zeek():
       openmethod = "w"
     else:
       openmethod = "a"
-  except FileNotFoundError:
+  except OSError:
     openmethod = "a"
 
+  import os
   influxtime = int(time() * 1000000000)
-  with open("/nsm/zeek/logs/zeek_restart.log", openmethod) as f:
+  flags = os.O_CREAT | os.O_WRONLY | (os.O_TRUNC if openmethod == 'w' else os.O_APPEND)
+  fd = os.open("/nsm/zeek/logs/zeek_restart.log", flags, 0o640)
+  with os.fdopen(fd, 'w') as f:
     f.write('healthcheck zeek_restart=%i %i\n' % (zeek_restart, influxtime))
 
 

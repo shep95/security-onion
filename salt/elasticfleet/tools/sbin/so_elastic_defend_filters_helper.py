@@ -11,7 +11,8 @@ import shutil
 def extract_relevant_fields(filter):
     return {
         'entries': filter.get('entries', []),
-        'description': filter.get('description', '')
+        'description': filter.get('description', ''),
+        'os_types': filter.get('os_types', [])
     }
 
 # Sort for consistency, so that a hash can be generated
@@ -31,6 +32,10 @@ def generate_hash(data):
 
 # Load Elasticsearch credentials from the config file
 def load_credentials(config_path):
+    import stat
+    st = os.stat(config_path)
+    if st.st_mode & 0o077:
+        raise PermissionError(f"Credentials file {config_path} is group/world readable. Fix permissions with: chmod 600 {config_path}")
     with open(config_path, 'r') as file:
         for line in file:
             if line.startswith("user"):
@@ -53,9 +58,9 @@ def api_request(method, guid, username, password, json_data=None):
     auth = HTTPBasicAuth(username, password)
 
     if method == "POST":
-        url = "http://localhost:5601/api/exception_lists/items?namespace_type=agnostic"
+        url = "https://localhost:5601/api/exception_lists/items?namespace_type=agnostic"
     else:
-        url = f"http://localhost:5601/api/exception_lists/items?item_id={guid}&namespace_type=agnostic"
+        url = f"https://localhost:5601/api/exception_lists/items?item_id={guid}&namespace_type=agnostic"
 
     response = requests.request(method, url, headers=headers, auth=auth, json=json_data)
     
@@ -87,8 +92,8 @@ def load_yaml_files(*dirs):
                         full_path = os.path.join(root, file_name)
                         with open(full_path, 'r') as f:
                             try:
-                                yaml_content = yaml.safe_load(f)
-                                yaml_files.append(yaml_content)
+                                docs = list(yaml.safe_load_all(f))
+                                yaml_files.extend(docs)
                             except yaml.YAMLError as e:
                                 print(f"Error loading {full_path}: {e}")
         else:
@@ -97,11 +102,14 @@ def load_yaml_files(*dirs):
     return yaml_files
 
 def prepare_custom_rules(input_file, output_dir):
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(f"Input file not found: {input_file}")
+
     # Clear the output directory first
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
-    
+
     try:
         # Load the YAML file
         with open(input_file, 'r') as f:

@@ -1,7 +1,8 @@
 #!/bin/bash
+set -euo pipefail
 #
 # Copyright Security Onion Solutions LLC and/or licensed to Security Onion Solutions LLC under one
-# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at 
+# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at
 # https://securityonion.net/license; you may not use this file except in compliance with the
 # Elastic License 2.0.
 
@@ -30,7 +31,7 @@ for arg; do
 	set -- "$@" "$arg"
 done
 
-if [[ $# -eq 0 || $# -gt 1 ]] || [[ $1 == '-h' || $1 == '--help' ]]; then
+if [[ $# -eq 0 ]] || [[ $1 == '-h' || $1 == '--help' ]]; then
 	usage
 fi
 
@@ -38,7 +39,7 @@ TRUSTED_CONTAINERS=("$@")
 set_version
 
 for image in "${TRUSTED_CONTAINERS[@]}"; do
-	if ! docker images | grep "$image" | grep ":5000" | grep -q "$VERSION"; then
+	if ! docker images | grep -F "$image" | grep ":5000" | grep -qF "$VERSION"; then
 		if [[ $quiet == true ]]; then
 			update_docker_containers "$image" "" "" "/dev/null"
 		else

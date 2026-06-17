@@ -66,13 +66,18 @@ def remove_vm_from_vms_file(vms_file_path, vm_hostname, vm_role):
         vms = [vm for vm in vms if not (vm.get('hostname') == vm_hostname and vm.get('role') == vm_role)]
         
         if len(vms) < original_count:
-            # VM was found and removed, write back to file
-            with open(vms_file_path, 'w') as f:
+            # VM was found and removed, write to a temp file then atomically replace
+            import pwd, tempfile
+            tmp_path = vms_file_path + '.tmp'
+            with open(tmp_path, 'w') as f:
                 json.dump(vms, f, indent=2)
-            
-            # Set socore:socore ownership (939:939)
-            os.chown(vms_file_path, 939, 939)
-            
+            try:
+                socore = pwd.getpwnam('socore')
+                os.chown(tmp_path, socore.pw_uid, socore.pw_gid)
+            except Exception as chown_err:
+                log.warning(f"Could not chown {tmp_path}: {chown_err}")
+            os.replace(tmp_path, vms_file_path)
+
             msg = f"Removed VM {vm_hostname}_{vm_role} from {vms_file_path}"
             log.info(msg)
             return {'result': True, 'comment': msg}

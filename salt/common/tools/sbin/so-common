@@ -1,9 +1,14 @@
 #!/bin/bash
 #
 # Copyright Security Onion Solutions LLC and/or licensed to Security Onion Solutions LLC under one
-# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at 
+# or more contributor license agreements. Licensed under the Elastic License 2.0 as shown at
 # https://securityonion.net/license; you may not use this file except in compliance with the
 # Elastic License 2.0.
+
+# Fail on unset variables and pipeline errors. set -e is intentionally omitted:
+# so-common is a sourced library and callers may not expect exit-on-error semantics.
+set -u
+set -o pipefail
 
 # Elastic agent is not managed by salt. Because of this we must store this base information in a 
 # script that accompanies the soup system. Since so-common is one of those special soup files, 
@@ -12,7 +17,7 @@
 DEFAULT_SALT_DIR=/opt/so/saltstack/default
 DOC_BASE_URL="https://securityonion.net/docs"
 
-if [ -z $NOROOT ]; then
+if [ -z "$NOROOT" ]; then
 	# Check for prerequisites
 	if [ "$(id -u)" -ne 0 ]; then
 		echo "This script must be run using sudo!"
@@ -43,7 +48,7 @@ add_interface_bond0() {
 
 	# Check if specific offload features are able to be disabled
 	for string in "generic-segmentation-offload" "generic-receive-offload" "tcp-segmentation-offload"; do
-		if ethtool -k "$BNIC" | grep $string | grep -q "on [fixed]"; then
+		if ethtool -k "$BNIC" | grep "$string" | grep -q "on \[fixed\]"; then
 			echo "The hardware or driver for interface ${BNIC} is not supported, packet capture may not work as expected."
 			((nic_error++))
 			break
@@ -105,7 +110,7 @@ airgap_playbooks() {
 	mkdir -p /nsm/airgap-resources
 	# Purge old airgap playbooks to ensure SO only uses the latest released playbooks
 	rm -fr /nsm/airgap-resources/playbooks
-	tar xf $SRC_DIR/airgap-resources/playbooks.tgz -C /nsm/airgap-resources/
+	tar xf "$SRC_DIR/airgap-resources/playbooks.tgz" -C /nsm/airgap-resources/
 	chown -R socore:socore /nsm/airgap-resources/playbooks
 	git config --global --add safe.directory /nsm/airgap-resources/playbooks
 }
@@ -232,7 +237,7 @@ copy_new_files() {
   done
   
   # Copy new files over to the salt dir
-  cd $UPDATE_DIR
+  cd "$UPDATE_DIR" || { echo "ERROR: Cannot cd to UPDATE_DIR: $UPDATE_DIR" >&2; exit 1; }
   rsync -a salt $DEFAULT_SALT_DIR/ --delete "${EXCLUDE_ARGS[@]}"
   rsync -a pillar $DEFAULT_SALT_DIR/ --delete "${EXCLUDE_ARGS[@]}"
   chown -R socore:socore $DEFAULT_SALT_DIR/
@@ -244,12 +249,12 @@ create_local_directories() {
 	PILLARSALTDIR=$1
 	local_salt_dir="/opt/so/saltstack/local"
 	for i in "pillar" "salt"; do
-		for d in $(find $PILLARSALTDIR/$i -type d); do
+		while IFS= read -r d; do
 			suffixdir=${d//$PILLARSALTDIR/}
 			if [ ! -d "$local_salt_dir/$suffixdir" ]; then
 				mkdir -p $local_salt_dir$suffixdir
 			fi
-		done
+		done < <(find "$PILLARSALTDIR/$i" -type d)
 		chown -R socore:socore $local_salt_dir/$i
 	done
 }
@@ -356,7 +361,7 @@ gpg_rpm_import() {
 	fi
 	RPMKEYS=('RPM-GPG-KEY-oracle' 'RPM-GPG-KEY-EPEL-9' 'SALT-PROJECT-GPG-PUBKEY-2023.pub' 'docker.pub' 'securityonion.pub')
 	for RPMKEY in "${RPMKEYS[@]}"; do
-		rpm --import $RPMKEYSLOC/$RPMKEY
+		rpm --import "$RPMKEYSLOC/$RPMKEY"
 		echo "Imported $RPMKEY"
 	done
 }
@@ -506,6 +511,9 @@ retry() {
         while [[ $attempt -lt $maxAttempts ]]; do
                 attempt=$((attempt+1))
                 echo "Executing command with retry support: $cmd"
+                # SECURITY NOTE: eval is used here because cmd may contain shell
+                # constructs (pipes, redirects, quoted args). Callers are responsible
+                # for ensuring cmd is not constructed from untrusted user input.
                 output=$(eval "$cmd")
                 exitcode=$?
                 echo "Results: $output ($exitcode)"
@@ -547,7 +555,7 @@ retry() {
 
 rollover_index() {
   idx=$1
-  exists=$(so-elasticsearch-query $idx -o /dev/null -w "%{http_code}")
+  exists=$(so-elasticsearch-query "$idx" -o /dev/null -w "%{http_code}")
   if [[ $exists -eq 200 ]]; then
     rollover=$(so-elasticsearch-query $idx/_rollover -o /dev/null -w "%{http_code}" -XPOST)
 
@@ -571,6 +579,8 @@ run_check_net_err() {
 		retry 5 60 "$cmd"
 		exit_code=$?
 	else
+		# SECURITY NOTE: eval is used here to support shell constructs in cmd.
+		# Callers must ensure cmd is not constructed from untrusted user input.
 		eval "$cmd"
 		exit_code=$?
 	fi
@@ -621,7 +631,7 @@ wait_for_salt_minion() {
 
 salt_minion_count() {
 	local MINIONDIR="/opt/so/saltstack/local/pillar/minions"
-	MINIONCOUNT=$(ls -la $MINIONDIR/*.sls | grep -v adv_ | wc -l)
+	MINIONCOUNT=$(find "$MINIONDIR" -maxdepth 1 -name '*.sls' | grep -v adv_ | wc -l)
 
 }
 
@@ -706,20 +716,10 @@ valid_cidr() {
 	# Verify there is a backslash in the string
 	echo "$1" | grep -qP "^[^/]+/[^/]+$" || return 1
 
+	# Delegate to valid_ip4_cidr_mask for full validation.
+	# The code block that previously followed this line was unreachable because
+	# "return 0 || return 1" always returns before it could execute.
 	valid_ip4_cidr_mask "$1" && return 0 || return 1
-	
-	local cidr="$1"
-	local ip
-	ip=$(echo "$cidr" | sed 's/\/.*//' )
-	
-	if valid_ip4 "$ip"; then
-		local ip1 ip2 ip3 ip4 N
-		IFS="./" read -r ip1 ip2 ip3 ip4 N <<< "$cidr"
-		ip_total=$((ip1 * 256 ** 3 + ip2 * 256 ** 2 + ip3 * 256 + ip4))
-		[[ $((ip_total % 2**(32-N))) == 0 ]] && return 0 || return 1
-	else
-		return 1
-	fi
 }
 
 valid_cidr_list() {
@@ -883,7 +883,7 @@ wait_for_web_response() {
 	while [[ $attempt -lt $maxAttempts ]]; do
 		attempt=$((attempt+1))
 		echo "Waiting for value '$expected' at '$url' ($attempt/$maxAttempts)"
-		result=$($curlcmd -ks -L $url)
+		result=$("$curlcmd" -ks -L "$url")
 		exitcode=$?
 
 		echo "--------------------------------------------------" >> $logfile

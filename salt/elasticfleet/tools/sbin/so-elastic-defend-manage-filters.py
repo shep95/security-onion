@@ -46,6 +46,7 @@ def extract_entries(data, event_type):
 
         if condition not in CONDITION_MAPPINGS:
             logging.error(f"Invalid condition: {condition}")
+            continue
 
         # Modify the pattern based on the condition
         pattern = modify_pattern(condition, pattern)
@@ -84,8 +85,7 @@ def build_json_entry(entries, guid, event_type, context):
         "namespace_type": "agnostic",
         "tags": ["policy:all"],
         "type": "simple",
-        "os_types": ["windows"],
-        "entries": entries
+        "os_types": ["windows"]
     }
 
 # Check to see if the rule is disabled
@@ -133,7 +133,6 @@ def process_rule_update_or_create(guid, json_entry, username, password):
         new_rule_data = extract_relevant_fields(json_entry)
         if generate_hash(existing_rule_data) != generate_hash(new_rule_data):
             logging.info(f"Updating rule {guid}")
-            json_entry.pop("list_id", None)
             api_request("PUT", guid, username, password, json_data=json_entry)
             return "updated"
         logging.info(f"Rule {guid} is up to date.")
@@ -194,7 +193,18 @@ def main(argv):
     disabled_file = ""
     yaml_directories = []
 
-    opts = parse_args(argv)
+    # Expand flags file before processing arguments
+    expanded_argv = []
+    i = 0
+    while i < len(argv):
+        if argv[i] in ('-f', '--flags_file') and i + 1 < len(argv):
+            expanded_argv.extend(load_flags(argv[i + 1]))
+            i += 2
+        else:
+            expanded_argv.append(argv[i])
+            i += 1
+
+    opts = parse_args(expanded_argv)
 
     for opt, arg in opts:
         if opt in ("-c", "--credentials"):
@@ -203,9 +213,6 @@ def main(argv):
             disabled_file = arg
         elif opt in ("-i", "--input"):
             yaml_directories.append(arg)
-        elif opt in ("-f", "--flags_file"):
-            flags = load_flags(arg)
-            return main(argv + flags)
 
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     logging.info(f"\n{timestamp}")

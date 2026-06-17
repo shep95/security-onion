@@ -29,14 +29,14 @@ def setup_logging(logger_name, log_file_path, log_level=logging.INFO, format_str
     log_file_dir = os.path.dirname(log_file_path)
     if log_file_dir and not os.path.exists(log_file_dir):
         try:
-            os.makedirs(log_file_dir)
+            os.makedirs(log_file_dir, mode=0o750, exist_ok=True)
         except OSError as e:
-            print(f"Error creating directory {log_file_dir}: {e}")
-            sys.exit(1)
+            raise OSError(f"Cannot create log directory: {log_file_dir}") from e
 
-    # Create handlers
+    # Create handlers with restricted file permissions
+    fd = os.open(log_file_path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o640)
     c_handler = logging.StreamHandler()
-    f_handler = logging.FileHandler(log_file_path)
+    f_handler = logging.FileHandler(os.fdopen(fd, 'a'))
     c_handler.setLevel(log_level)
     f_handler.setLevel(log_level)
 

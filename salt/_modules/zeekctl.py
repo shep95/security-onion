@@ -5,6 +5,11 @@ import logging
 
 def capstats(interval=10):
 
+ try:
+   interval = int(interval)
+ except ValueError:
+   return 'Invalid interval: must be an integer'
+
  cmd = "runuser -l zeek -c '/opt/zeek/bin/zeekctl capstats %i'" % interval
  retval = __salt__['docker.run']('so-zeek', cmd)
  
@@ -140,9 +145,10 @@ def status(verbose=True):
 
  cmd = "runuser -l zeek -c '/opt/zeek/bin/zeekctl status'"
  retval = __salt__['docker.run']('so-zeek', cmd)
- if not verbose:
-   retval = __context__['retcode']
  logging.info('zeekctl_module: zeekctl.status retval: %s' % retval)
+ if not verbose:
+   output = retval if isinstance(retval, str) else ''
+   return 'stopped' in output or 'crashed' in output
  return retval
 
 
